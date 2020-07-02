@@ -26,8 +26,8 @@
 #define ESP_MSG_ID_WIFI_SCAN_REQ		    7
 #define ESP_TYPE_DEBUG                      0x10
 #define ESP_TYPE_PING                       0x11
-#define ESP_START_UPLOAD                    0x12
-#define ESP_UPLOAD                          0x13
+#define ESP_NTP                             0x12
+#define ESP_NET_STATE                       0x13
 
 #define USED_UART                   0
 
@@ -42,8 +42,7 @@ typedef struct {
     unsigned char * message;
 } UartSendMessage;
 
-extern volatile unsigned char tx_has_data;
-
+extern unsigned char _sync_dma;
 void init_uart();
 
 void uart_sync_dma(unsigned char v);

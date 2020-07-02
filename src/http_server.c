@@ -36,6 +36,12 @@ static esp_tcp _http_proto;
 #define HTTP_POST_CONTENT_STARTED   BIT(2)
 #define HTTP_FILE_STARTED           BIT(3)
 
+#define TRANSFER_FINALIZE_TIMER_DELAY           2000
+#define TRANSFER_FINALIZE_TIMER_DELAY_REPEAT    500
+
+static uint32_t _http_keepalive_idle = 30;
+static uint32_t _http_keepalive_int = 1;
+
 typedef struct {
     REQUEST_STATE state;
     unsigned char request_id;
@@ -58,7 +64,11 @@ static ICACHE_FLASH_ATTR void http_server_sent_responce_message(struct espconn *
 static os_timer_t _transfer_complete_timer;
 
 static void ICACHE_FLASH_ATTR on_transfer_complete_timer_proc(void *arg) {
-    uart_sync_dma(0);
+    os_timer_disarm(&_transfer_complete_timer);
+    if (uart_tx_buffer_queue_len()==0)
+        uart_sync_dma(0);
+    else
+        os_timer_arm(&_transfer_complete_timer, TRANSFER_FINALIZE_TIMER_DELAY_REPEAT, 0);
 }
 
 static ICACHE_FLASH_ATTR void http_server_sent_responce(struct espconn *current) {
@@ -195,17 +205,23 @@ static void ICACHE_FLASH_ATTR http_file(struct espconn *connection, char *pdata,
     unsigned char _sl = 0;
     while (writed<len) {
         package_size = len - writed;
-        if (package_size > 1000)
-            package_size = 1000;
+        if (package_size > 500)
+            package_size = 500;
 
         request->content_counter+=package_size;
         u32 part = request->file_part_index++;
         if (request->content_counter==request->content_size)
             part |= (u32) (1 << 31);
+
+        //char buf[100];
+        //os_sprintf(buf, "%d %d/%d", part, request->content_counter, request->content_size);
+        //uart_debug_message(buf);
+
         uart_start_message(ESP_TYPE_FILE_FRAGMENT ,  package_size + sizeof(part));
         uart_message((unsigned char *)&part, sizeof(part));
         uart_message((unsigned char *)(&pdata[writed]), package_size);
         uart_end_message();
+
         writed += package_size;
     }
 }
@@ -264,7 +280,8 @@ void ICACHE_FLASH_ATTR  http_on_recv(struct espconn *connection, char *pdata, un
 
     if((request->state == HTTP_FILE) && (request->content_counter == request->content_size)) {
         request->state = HTTP_DONE;
-        os_timer_arm(&_transfer_complete_timer, 2000, 0);
+        uart_sync_dma(0);
+        //os_timer_arm(&_transfer_complete_timer, TRANSFER_FINALIZE_TIMER_DELAY, 0);
     }
 
     if ((request->state == HTTP_STATE_FAIL) || (request->state == HTTP_DONE))
@@ -277,19 +294,20 @@ void ICACHE_FLASH_ATTR  http_on_sent(struct espconn *current) {
 }
 
 void ICACHE_FLASH_ATTR  http_on_recon(struct espconn *current, sint8 err) {
+    uart_debug_message("http client reconnected");
 }
 
 static void ICACHE_FLASH_ATTR http_on_discon(struct espconn *current) {
+    HTTP_REQUEST * request = (HTTP_REQUEST *)current->reverse;
     if (current->reverse) {
+        if (request->state==HTTP_FILE)
+            os_timer_arm(&_transfer_complete_timer, TRANSFER_FINALIZE_TIMER_DELAY, 0);
         os_free(current->reverse);
         current->reverse = 0;
         uart_debug_message("http client memory release");
     }
     uart_debug_message("http client disconnected");
 }
-
-static uint32_t _http_keepalive_idle = 30;
-static uint32_t _http_keepalive_int = 1;
 
 static void ICACHE_FLASH_ATTR http_on_connect(struct espconn *current) {
     uart_debug_message("http client connected");

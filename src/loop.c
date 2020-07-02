@@ -3,6 +3,7 @@
 //
 
 #include "loop.h"
+#include "ntp.h"
 #include "user_config.h"
 #include "../sdk/c_types.h"
 #include "../sdk/gpio.h"
@@ -19,10 +20,14 @@
 
 #define TASK_QUEUE_LEN    10
 static os_event_t task_queue[TASK_QUEUE_LEN];
+#define PING_TIMEOUT               2000
+//ping timer - 2 сек. 2*NTP_COUNTDOWN=интервал запросов
+#define NTP_COUNTDOWN               600
+#define NTP_FAIL_COUNTDOWN          60
 
 static unsigned char _return_to_softap_after_scan = 0;
-
 static os_timer_t _ping_timer;
+static short ntp_count_down = 0;
 
 static void ICACHE_FLASH_ATTR on_ping_timer(void *arg) {
     system_os_post(0, MESSAGE_PING, 0);
@@ -30,6 +35,7 @@ static void ICACHE_FLASH_ATTR on_ping_timer(void *arg) {
 
 void ICACHE_FLASH_ATTR _wifi_done_scan(void * arg, STATUS status) {
     if (status == OK) {
+        uart_debug_message("wifi scan OK");
         UartSendMessage * uartSendMessage = (UartSendMessage *)os_zalloc(sizeof(UartSendMessage));
         uartSendMessage->command = ESP_MSG_ID_WIFI_SCAN_RESP;
         uartSendMessage->is_dynamic_memory = 1;
@@ -66,7 +72,8 @@ void ICACHE_FLASH_ATTR _wifi_done_scan(void * arg, STATUS status) {
             _return_to_softap_after_scan = 0;
         }
         uart_message_async(uartSendMessage);
-    }
+    } else
+        uart_debug_message("wifi scan FAIL");
 }
 
 void ICACHE_FLASH_ATTR _wifi_state_response(unsigned char wifistate) {
@@ -159,8 +166,6 @@ void ICACHE_FLASH_ATTR _wifi_state_response(unsigned char wifistate) {
     uart_message_async(uartSendMessage);
 }
 
-static int uart_div = 10;
-
 static void ICACHE_FLASH_ATTR task_proc(os_event_t *events) {
     switch (events->sig) {
         case MESSAGE_FROM_UART:
@@ -203,6 +208,7 @@ static void ICACHE_FLASH_ATTR task_proc(os_event_t *events) {
                             _return_to_softap_after_scan = 1;
                             wifi_set_opmode_current(STATION_MODE);
                         }
+                        uart_debug_message("wifi scan");
                         wifi_station_scan(0, _wifi_done_scan);
                         break;
                     }
@@ -226,6 +232,17 @@ static void ICACHE_FLASH_ATTR task_proc(os_event_t *events) {
                 uart_data_send("M991\n", 5, ESP_MSG_ID_GCODE);
             else
                 uart_data_send(0, 0, ESP_TYPE_PING);
+
+            if (wifi_get_opmode() == STATION_MODE) {
+                if (ntp_count_down) {
+                    ntp_count_down--;
+                } else {
+                    if (_sync_dma==0) {
+                        ntp_set_time();
+                        ntp_count_down = NTP_COUNTDOWN;
+                    }
+                }
+            }
             break;
         case MESSAGE_WIFI_STATUS: {
             switch (events->par) {
@@ -234,6 +251,7 @@ static void ICACHE_FLASH_ATTR task_proc(os_event_t *events) {
                     break;
                 case EVENT_STAMODE_GOT_IP:
                     uart_debug_message("event: got ip");
+                    ntp_count_down = 0;
                     _wifi_state_response(events->par);
                     os_timer_disarm(&_ping_timer);
                     os_timer_setfn(&_ping_timer, (os_timer_func_t *)on_ping_timer, 0);
@@ -261,6 +279,14 @@ static void ICACHE_FLASH_ATTR task_proc(os_event_t *events) {
                     uart_debug_message("event: max");
                     break;
             }
+            break;
+        }
+        case MESSAGE_NTP_LOADED: {
+            uart_data_send((unsigned char*)&ntp_time, sizeof(ntp_time), ESP_NTP);
+            break;
+        }
+        case MESSAGE_NTP_ERROR: {
+            ntp_count_down = NTP_FAIL_COUNTDOWN;
             break;
         }
 

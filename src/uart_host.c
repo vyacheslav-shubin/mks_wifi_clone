@@ -17,6 +17,7 @@
 void uart_int_handler(void *va);
 inline void process_uart(unsigned char msg);
 
+
 void ICACHE_FLASH_ATTR init_uart() {
     gpio_register_set(GPIO_PIN_ADDR(LOOPBACK_PIN), GPIO_PIN_PAD_DRIVER_SET(GPIO_PAD_DRIVER_DISABLE) | GPIO_PIN_SOURCE_SET(GPIO_AS_PIN_SOURCE));
     // Порог прерывания 1 байт
@@ -28,8 +29,9 @@ void ICACHE_FLASH_ATTR init_uart() {
     SET_PERI_REG_MASK(UART_CONF0(USED_UART), UART_RXFIFO_RST | UART_TXFIFO_RST);
     CLEAR_PERI_REG_MASK(UART_CONF0(USED_UART), UART_RXFIFO_RST | UART_TXFIFO_RST);
     WRITE_PERI_REG(UART_INT_CLR(USED_UART), 0xffff);
-    SET_PERI_REG_MASK(UART_INT_ENA(USED_UART), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_OVF_INT_ENA | UART_TXFIFO_EMPTY_INT_ENA);
-    //ETS_UART_INTR_ENABLE();
+    //SET_PERI_REG_MASK(UART_INT_ENA(USED_UART), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_OVF_INT_ENA | UART_TXFIFO_EMPTY_INT_ENA);
+    SET_PERI_REG_MASK(UART_INT_ENA(USED_UART), UART_RXFIFO_FULL_INT_ENA | UART_RXFIFO_OVF_INT_ENA);
+    ETS_UART_INTR_ENABLE();
 }
 
 volatile unsigned char _uart_msg_count = 0;
@@ -52,7 +54,7 @@ void uart_int_handler(void *va) {
         if (status & UART_TXFIFO_EMPTY_INT_ST) {
             tx_has_data = 0;
             WRITE_PERI_REG(UART_INT_CLR(USED_UART), UART_TXFIFO_EMPTY_INT_CLR);
-            GPIO_OUTPUT_SET (2, 1);
+            led_off();
         }
     }
     for (unsigned char i=0;i<_uart_msg_count;i++)
@@ -73,35 +75,83 @@ UartReadState _read_state = {0, 0, 0, 0};
 
 #define UART_STATE_MESSAGE_STARTED  BIT(1)
 
-static volatile unsigned char _message_id = 0;
-
-static unsigned char _sync_dma = 0;
+unsigned char _sync_dma = 0;
 static unsigned short _sync_dma_byte_count = 0;
 
-void ICACHE_FLASH_ATTR uart_sync_dma(unsigned char v) {
-    _sync_dma = v;
-    _sync_dma_byte_count = 0;
-    //uart_div_modify(USED_UART, UART_CLK_FREQ / (_sync_dma ? 1958400 : 115200));
-    uart_div_modify(USED_UART, _sync_dma ? 41 : 694);
+int ICACHE_FLASH_ATTR uart_tx_buffer_queue_len() {
+    return ((READ_PERI_REG(UART_STATUS(USED_UART)) >> UART_TXFIFO_CNT_S) & UART_TXFIFO_CNT);
 }
 
-void ICACHE_FLASH_ATTR uart_tx(unsigned char c) {
+void ICACHE_FLASH_ATTR uart_wait_output_finished() {
+    while (uart_tx_buffer_queue_len())
+        wdt_reset();
+}
+
+void ICACHE_FLASH_ATTR uart_wait_tx_buffer() {
+    while (uart_tx_buffer_queue_len() >= 126)
+        wdt_reset();
+}
+
+void ICACHE_FLASH_ATTR uart_sync_dma(unsigned char v) {
+    //uart_wait_output_finished();
+    if (_sync_dma!=v) {
+        if (v==0) while (_sync_dma_byte_count) {
+            uart_tx(0xFF);
+            uart_wait_output_finished();
+        }
+        _sync_dma = v;
+        //uart_div_modify(USED_UART, UART_CLK_FREQ / (_sync_dma ? 1958400 : 115200));
+        uart_div_modify(USED_UART, _sync_dma ? 41 : 694);
+    }
+}
+
+void ICACHE_FLASH_ATTR uart_tx1(unsigned char c) {
     while (true) {
         uint32 fifo_cnt = READ_PERI_REG(UART_STATUS(USED_UART)) & (UART_TXFIFO_CNT << UART_TXFIFO_CNT_S);
         if ((fifo_cnt >> UART_TXFIFO_CNT_S & UART_TXFIFO_CNT) <= 126)
             break;
     }
     if (_sync_dma_byte_count==0)
-        while (uart_loopback_state());
+        while (uart_loopback_state()) {
+            led_on();
+            wdt_reset();
+        }
+    led_off();
 
     tx_has_data = 1;
-    GPIO_OUTPUT_SET (2, 0);
     WRITE_PERI_REG(UART_FIFO(USED_UART), c);
     if (_sync_dma) {
         _sync_dma_byte_count++;
         if (_sync_dma_byte_count==1024)
             _sync_dma_byte_count = 0;
     }
+}
+
+
+void ICACHE_FLASH_ATTR uart_tx(unsigned char c) {
+    //while (true) {
+    //    uint32 fifo_cnt = READ_PERI_REG(UART_STATUS(USED_UART)) & (UART_TXFIFO_CNT << UART_TXFIFO_CNT_S);
+    //    if ((fifo_cnt >> UART_TXFIFO_CNT_S & UART_TXFIFO_CNT) <= 126)
+    //        break;
+    //}
+    led_on();
+    if (_sync_dma_byte_count==0) {
+        uart_wait_output_finished();
+        while (uart_loopback_state()) {
+            wdt_reset();
+        }
+    } else {
+        uart_wait_tx_buffer();
+    }
+
+    tx_has_data = 1;
+    WRITE_PERI_REG(UART_FIFO(USED_UART), c);
+    if (_sync_dma) {
+        _sync_dma_byte_count++;
+        if (_sync_dma_byte_count==1024)
+            _sync_dma_byte_count = 0;
+    }
+    led_off();
 }
 
 void ICACHE_FLASH_ATTR uart_start_message(unsigned char cmd, unsigned short len) {

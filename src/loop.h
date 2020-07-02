@@ -16,9 +16,11 @@ typedef enum {
     MESSAGE_HTTP_ROOT,
     MESSAGE_HTTP_UPLOAD,
     MESSAGE_UART_TEST,
+    MESSAGE_NTP_LOADED,
+    MESSAGE_NTP_ERROR,
 } MESSAGE_TYPE;
 
-
+int uart_tx_buffer_queue_len();
 void init_loop();
 
 #endif //WIFI_MODULE_LOOP_H

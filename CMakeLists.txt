@@ -41,4 +41,4 @@ add_executable(wifi_module
 		driver/uart.h
 		driver/uart_register.h
 		src/eeprom.c
-		src/eeprom.h src/bridge.c src/bridge.h src/http_server.c src/http_server.h gen/html.h)
+		src/eeprom.h src/bridge.c src/bridge.h src/http_server.c src/http_server.h gen/html.h src/ntp.c src/ntp.h)
