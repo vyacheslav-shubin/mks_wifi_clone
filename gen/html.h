@@ -6,6 +6,7 @@
 #define WIFI_MODULE_HTML_H
 
 #include "index_html.h"
+#include "err0_json.h"
 
 #define index_html gen_index_tmp
 

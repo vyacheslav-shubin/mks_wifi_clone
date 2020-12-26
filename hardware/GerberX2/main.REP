@@ -1,0 +1,40 @@
+*************************************************************
+FileName = main.GBR
+AutoAperture = True
+*************************************************************
+Generating : Top Layer
+      File : main_Copper_Signal_Top.gbr
+
+    Adding Layer      : Top Layer
+
+    Adding Layer      : Multi-Layer
+
+
+Used DCodes :
+    D10
+    D11
+    D12
+    D13
+    D14
+    D15
+    D16
+*************************************************************
+
+*************************************************************
+Generating : Profile
+      File : main_Profile.gbr
+
+
+Used DCodes :
+    D17
+*************************************************************
+
+*************************************************************
+Generating : Plated through-hole drill file
+      File : main_PTH_Drill.gbr
+
+
+Used DCodes :
+    D18
+*************************************************************
+

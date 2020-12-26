@@ -81,7 +81,7 @@ static ICACHE_FLASH_ATTR void http_server_sent_responce(struct espconn *current)
                 espconn_sent(current, index_html, sizeof(index_html));
                 break;
             case MESSAGE_HTTP_UPLOAD:
-                http_server_sent_responce_message(current, "HTTP/1.1 200 OK\r\n\r\n");
+                espconn_sent(current, gen_err0_json, sizeof(gen_err0_json));
                 break;
         }
     }

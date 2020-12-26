@@ -32,6 +32,7 @@ void ICACHE_FLASH_ATTR  _bridge_on_recv(struct espconn *connection, char *pdata,
         if ((_bridge_buffer_index == 0) && ((b == ' ') || (b == '\r') || (b == '\n')))
             continue;
         if ((b == '\n') || (b == '\r')) {
+            _bridge_buffer[_bridge_buffer_index++] = '\n';
             uart_data_send(_bridge_buffer, _bridge_buffer_index, ESP_MSG_ID_GCODE);
             _bridge_buffer_index = 0;
         } else {
